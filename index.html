@@ -7,28 +7,32 @@
 		</style>
 	</head>
 	<body>
+		<span id="hcharge">0</span>%  <span id="hspeed">0.05</span>
 		<script src="three.min.js"></script>
 		<script>
 			function platformColor(){
 				var temp=Math.random()
-				if(temp<0.2){
-					return color_blue
+				if(temp<0.5){
+					return 0
+				}else if(temp<0.8){
+					return 1
 				}else{
-					return color_normal
+					return 2
 				}
 			}
 			function platGeometry(len,height){
 				var geon=new THREE.Geometry()
-				const stretch=0.166666
+				const stretch=1.66/ring_size
+				const width=0.5
 				const size=0.5
-				geon.vertices.push(new THREE.Vector3(stretch*height,-height,0))          //000
-				geon.vertices.push(new THREE.Vector3(-stretch*height,-height,0))         //001
-				geon.vertices.push(new THREE.Vector3(stretch*(height+1),-height-size,0))    //010
-				geon.vertices.push(new THREE.Vector3(-stretch*(height+1),-height-size,0))   //011
-				geon.vertices.push(new THREE.Vector3(stretch*height,-height,len))        //100
-				geon.vertices.push(new THREE.Vector3(-stretch*height,-height,len))       //101
-				geon.vertices.push(new THREE.Vector3(stretch*(height+1),-height-size,len))  //110
-				geon.vertices.push(new THREE.Vector3(-stretch*(height+1),-height-size,len)) //111
+				geon.vertices.push(new THREE.Vector3(stretch*height+width,-height,0))             //000
+				geon.vertices.push(new THREE.Vector3(-stretch*height-width,-height,0))            //001
+				geon.vertices.push(new THREE.Vector3(stretch*(height+1)+width,-height-size,0))    //010
+				geon.vertices.push(new THREE.Vector3(-stretch*(height+1)-width,-height-size,0))   //011
+				geon.vertices.push(new THREE.Vector3(stretch*height+width,-height,len))           //100
+				geon.vertices.push(new THREE.Vector3(-stretch*height-width,-height,len))          //101
+				geon.vertices.push(new THREE.Vector3(stretch*(height+1)+width,-height-size,len))  //110
+				geon.vertices.push(new THREE.Vector3(-stretch*(height+1)-width,-height-size,len)) //111
 				geon.verticesNeedUpdate=true
 				geon.faces.push(new THREE.Face3(2,1,0))
 				geon.faces.push(new THREE.Face3(1,2,3))
@@ -54,42 +58,64 @@
 				geon.computeVertexNormals();
 				return geon
 			}
+			function gen_ring(buffer,ring_size){
+				for(var j=0;j<ring_size;j++){
+					if(buffer.length<j+1){buffer.push(new THREE.Mesh(geometry,null))}
+					//result.push(new THREE.Mesh(geometry,platformColor()))
+					//buffer[j].position.y=3
+					buffer[j].plat_type=platformColor()
+					buffer[j].material=color_array[buffer[j].plat_type]
+					buffer[j].rotation.z=Math.PI*2/ring_size*j
+				}
+				return buffer
+			}
 			const plat_len = 2
 			const plat_count = 16
 			const ring_size = 10
+
+			var forcedplatforms=3
 
 			var scene = new THREE.Scene();
 			var camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 1000 );
 
 			var renderer = new THREE.WebGLRenderer();
-			renderer.setSize( window.innerWidth, window.innerHeight );
+			renderer.setSize( window.innerWidth, window.innerHeight-20 );
 			document.body.appendChild( renderer.domElement );
 
 			//var geometry = new THREE.BoxGeometry( 1.2, 0.2, plat_len );
-			var geometry=platGeometry(plat_len+0.01,6)
+			var geometry=platGeometry(plat_len+0.01,3)
 			var color_normal = new THREE.MeshPhongMaterial( { color: 0xbfbfbf } );
-			color_normal.shading=THREE.FlatShading
-			var color_blue = new THREE.MeshStandardMaterial( { color: 0x5fdfff } );
+			//color_normal.shading=THREE.FlatShading
+			var color_blue = new THREE.MeshPhongMaterial( { color: 0x5fdfff } );
+
+			var color_blank = new THREE.MeshPhongMaterial( { color: 0x000000 } );
+			color_blank.visible=false
+
+			var color_normal_special = new THREE.MeshPhongMaterial( { color: 0xffffff } );
+
+			var color_blue_special = new THREE.MeshPhongMaterial( {color: 0xdf5fdf } );
 			//var cube = new THREE.Mesh( geometry, material );
 			//scene.add( cube );
+
+			var color_array=[color_blank,color_blue,color_normal]
 
 			var center=new THREE.Object3D()
 			center.position.y=1.5
 			scene.add(center)
 			var spinners=[]
 			var cubes=[]
+			var objects=[]
 			for(var i=0;i<plat_count;i++){
-				cubes.push([])
-				spinners.push([])
-				for(var j=0;j<ring_size;j++){
-					cubes[i].push(new THREE.Mesh(geometry,platformColor()))
-					cubes[i][j].position.y=3
+				cubes.push(gen_ring([],ring_size))
+				for(var j=0;j<cubes[i].length;j++){
 					cubes[i][j].position.z=-plat_len*i
-					spinners[i].push(new THREE.Object3D())
-					spinners[i][j].rotation.z=Math.PI*2/ring_size*j
-					center.add(spinners[i][j])
-					spinners[i][j].add(cubes[i][j])
+					center.add(cubes[i][j])
+					if(j==0&&i<forcedplatforms&&cubes[i][j].plat_type==0){
+						cubes[i][j].material=color_normal
+						cubes[i][j].plat_type=2
+					}
 				}
+				spinners.push([])
 			}
 
 			var player_geon=new THREE.BoxGeometry(0.5,0.5,0.5)
@@ -110,22 +136,134 @@
 
 			camera.position.z = 5;
 
-			var speed=0.05
+			var speed=0.075
 			var player_y=-1
+			var player_y_vel=0
+			var player_y_vel_target=0
+			var player_rot=0
+			var rot_dist=0
+			var player_state="running" //running, jumping, hovering, falling
+			var state_timer=0 //used in jumping and hovering
 
+			var supercharged=0
+
+			document.onkeypress=function(e){
+				e=e||window.event
+				console.log(e.keyCode)
+				if(grounded){
+					if(e.keyCode==100){
+						player_rot+=ring_size-1
+						rot_dist-=1
+					}
+					if(e.keyCode==97){
+						player_rot+=1
+						rot_dist+=1
+					}
+					player_y_vel=0.02
+					player_state="jumping"
+					state_timer=15
+					grounded=null
+				}
+			}
+			var keyslist=new Array(256)
+			document.onkeydown=function(e){
+				e=e||window.event
+				keyslist[e.keyCode]=true
+			}
+			document.onkeyup=function(e){
+				e=e||window.event
+				keyslist[e.keyCode]=false
+			}
+			var crash=0
 			var render = function () {
-				requestAnimationFrame( render );
+				if(!crash){
+					requestAnimationFrame( render );
+				}
+				center.position.y=-player_y+0.5
+				if(rot_dist>0){
+					rot_dist-=0.125
+					center.rotateZ(Math.PI*.25/ring_size)
+				}else if(rot_dist<0){
+					rot_dist+=0.125
+					center.rotateZ(Math.PI*-.25/ring_size)
+				}
+				player_rot%=ring_size
+				if(player_state=="jumping"){
+					state_timer--
+					if(!state_timer){
+						player_state="hovering"
+						state_timer=60
+						player_y_vel_target=-0.005
+					}
+				}else if(player_state=="hovering"){
+					state_timer--
+					if(player_y_vel>player_y_vel_target){
+						player_y_vel-=0.001
+					}
+					if(!(state_timer&&keyslist.some(a=>a))){
+						player_state="falling"
+						state_timer=0
+						if(!state_timer){
+							player_y_vel=-0.01
+						}
+					}
+				}else if(player_state=="falling"){
+					player_y_vel-=0.001
+				}
+				player_y+=player_y_vel
+				player.position.y=player_y
 				for(var i=0;i<cubes.length;i++){
 					for(var j=0;j<cubes[i].length;j++){
 						cubes[i][j].position.z+=speed
+						if(cubes[i][j].position.z>-0.5&&cubes[i][j].position.z<1.5&&(player_rot==ring_size-j||player_rot==-j)){
+							//player contact
+							if(cubes[i][j].plat_type!=0){
+								grounded=player_y<=-1
+								if(player_y<-1){
+									if(player_y<-1.3){
+										crash=1
+									}
+									player_y=-1
+									player_y_vel=0
+								}
+							}else{
+								grounded=0
+								if(player_state=="running"){
+									player_state="falling"
+								}
+							}
+							if(cubes[i][j].plat_type==1&&grounded){
+								speed+=0.0001
+								charge=(speed-0.075)/0.0005
+								hcharge.innerHTML=charge.toFixed(2)
+								hspeed.innerHTML=speed.toFixed(4)
+								player.material.color.setHex(0x00ffff)
+								if(charge>100){
+									supercharged=1
+								}
+							}else{
+								player.material.color.setHex(0xff0000)
+							}
+							//cubes[i][j].material=color_blue
+						}else{
+							if(cubes[i][j].plat_type){
+								//cubes[i][j].material=color_blue_special
+							}
+						}
 						if(cubes[i][j].position.z>8){
 							cubes[i][j].position.z-=plat_len*plat_count
-							cubes[i][j].material=platformColor()
+							cubes[i][j].plat_type=platformColor()
+							cubes[i][j].material=color_array[cubes[i][j].plat_type]
+						}
+						if(supercharged&&!cubes[i][j].supercharged){
+							color_array=[color_blank,color_blue_special,color_normal_special]
+							cubes[i][j].material=color_array[cubes[i][j].plat_type]
+							cubes[i][j].supercharged=1
 						}
 					}
 				}
+				//hspeed.innerHTML=player_rot
 				renderer.render(scene, camera);
-				speed+=0.001
 			};
 
 			render();
